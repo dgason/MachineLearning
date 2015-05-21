@@ -1,0 +1,205 @@
+---
+title: "Machine Learning - Class Project"
+output: html_document
+---
+
+#Overview
+This project was created for the Machine Learning class project. The purpose of this project is to evalutate personal fitness data
+originally found at this website: http://groupware.les.inf.puc-rio.br/har and make predictions about the type of excercise being performed
+based on the factors in the data. The data from this site was gathered as part of a personal fitness
+study. Participants in the study were asked to perform weight-lifting excercises in 5 different ways, both correctly and incorrectly.  
+
+This project will build models using machine learning algorithms that 
+will predict the exercise based on the data gathered. In an attempt to build the best model possible, cross validation will be used
+with two different machine learning models. The best machine learning model will then be used for project submittal.
+
+In addition, the covariates of each model will be examined to see if there were signifcant differences between each model.
+Differences in either the weighting or inclusion of covariates can influence model performance.  
+
+
+```{r}
+#load libraries
+library(randomForest)
+library(caret)
+
+```
+
+```{r}
+# Set the random number seed for reproducibility
+set.seed(1119)
+
+#Load the files ###############################
+#Training file
+if (!file.exists("pml-training.csv")) {
+  download.file("http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", destfile="pml-training.csv")
+}
+
+trainingDF <- read.csv("pml-training.csv", na.strings = c("", "NA", "#DIV/0!"))
+
+#Testing file (this will be known as the validation set)
+if (!file.exists("pml-testing.csv")) {
+  download.file("http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", destfile="pml-testing.csv")
+}
+
+validation <- read.csv("pml-testing.csv", na.strings = c("", "NA", "#DIV/0!"))
+
+```
+
+# Cross Validation and Error Rates
+Cross validation will be used because model accuracy tends to be optimistic on the training data set.
+The error rate on the data set used to build the model is known as the **in sample error rate**.
+The in sample error rate is optimistic because the trained model will fitted to the noise contained within the training data.
+To compensate for this, the data will be split into three categories. The first two categories will come from the training data:
+it will be split into test and training sets. The provided test set will become the third category: the validation set. 
+The new test data set will be used to evaluate the **out of sample error rate** and used to evaluate the fitness of the model.
+Because the test data is not tuned to the noise the same way the training dataset is, **I expect the out of sample error rate to be better than the in sample error rate.**
+The model with the best out of sample error rate will be selected to run on the validation set.
+The validation set will be used for the project submission.
+
+
+#Step 1 - Clean and Process the Data
+Getting and cleaning data is a significant part of any data science project, and this one is no different. When some basic
+exploratory analysis was done on the data (not shown for brevity), it was clear that data cleaning would be needed.
+Several of the columns contained nothing but "NA" values and could be discarded. In addition, several columns were found to have
+error (#DIV/0!) values, or blanks. As part of reading in the data into a dataframe, these values were converted to "NA".
+Further, after a review of the data, the first few columns in the dataset did not appear to be measurements, but rather something
+closer to metadata. These columns were discarded so as not to interfere with the prediction.
+
+```{r]}
+#Clean the files ###########################
+
+#some columns seem to be just "NA", get rid of the columns with NA in them
+blankCols <- colSums(is.na(trainingDF)) > 0
+
+#use the same index of columns for both the training and validation sets so we are consistent
+trainingDF <- trainingDF[, !blankCols]
+validation <- validation[,!blankCols]
+
+#remove the covariates that are zero or close enough to be just noise
+zeroCols <- nearZeroVar(trainingDF)
+
+trainingDF <- trainingDF[,-zeroCols]
+validation <- validation[,-zeroCols]
+
+#the first 7 columns appear to be something other than covariates, get rid of them for the analysis
+trainingDF <- trainingDF[,-(1:7)]
+validation <- validation[,-(1:7)]
+
+#Separate the training data into training and testing
+inTrain <- createDataPartition(y=trainingDF$classe, p=0.6, list=FALSE)
+training <- trainingDF[inTrain,]
+testing <- trainingDF[-inTrain,]
+
+
+```
+
+
+#STEP 2 - Model Approach
+Two prediction models will be developed for prediction and cross validation. The best model will be selected
+and run on the validation set. The results of the model run on the validation set will be submitted for the couse project.  
+
+
+## Tree Model
+Tree models are easy to interpret and can be generated quickly. However, tree models by themselves can be subject to overfitting.
+The code below generates a tree model using the caret package on the training dataset. The quality of the predictions is then
+examined by using the testing dataset.
+
+```{r}
+treeMod <- train(classe ~ ., data=training, method="rpart")
+
+#importance of the difference variables
+tImport <- varImp(treeMod, scale = FALSE)
+
+print(tImport)
+
+plot(tImport, main="Tree Model - Relative Importance of the Covariates", xlab="Value", ylab="Covariate")
+
+#use the tree model and the testing dataset to get a feel of how accurate the constructed
+#model is
+treePredict <- predict(treeMod, newdata=testing)
+
+tree.test <- confusionMatrix(treePredict, testing$classe)
+
+print(tree.test)
+
+
+
+```
+
+**The out of sample error rate** was high for the tree model at 0.45.
+
+
+
+##Random Forest Model
+Random forest models are computationally expensive, but tend to be accurate. The code below constructs a
+random forest model.  
+
+
+```{r}
+#Build a random forest model
+
+rForest <- train(classe ~ ., data=training, method="rf")
+
+#importance of the difference variables
+rfImport <- varImp(rForest, scale = FALSE)
+
+print(rfImport)
+
+plot(rfImport, main="Random Forest - Relative Importance of the Covariates", xlab="Value", ylab="Covariate")
+
+
+#use the random forest model and the testing dataset to get a feel of how accurate the constructed
+#model is
+testPredict <- predict(rForest, newdata=testing)
+
+rf.test <- confusionMatrix(testPredict, testing$classe)
+
+print(rf.test)
+
+
+```
+**The out of sample error rate** for the random forest algorithm was significantly better at approximately 0.01.    
+
+
+##STEP 3 - Conclusion and Submittal
+
+##Conclusion
+The tree model has a relatively dismal accuracy rate of approximately 55%. However, the Random Forest model has an accuracy of 
+99%. The random forest model will be used for the project submission.  It is my expectation that the out of sample error rate for 
+the random forest model
+on the validation set will also be close to 0.01, so there is a reasonable chance of getting all 20 predictions correct.  
+It is interesting to note that when the covariate significance of each model 
+was examined with the *varImp()* method, the important covariates were different in each model. This resulted in very different 
+accuracy rates for each model.
+
+When the random forest was run on the validation dataset and the results were submitted, 100% of the predictions were correct.
+
+
+
+##Submittal
+Run the random forest model on the validation set and submit
+
+```{r}
+#predictions on the validation set
+validationPredict <- predict(rForest, newdata=validation)
+
+```
+
+For the problem submission, use the function provided in the submission instructions to write out the predictions in a file.
+
+```{r}
+
+#generate the files for the problem submission using the provided function
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+pml_write_files(validationPredict)
+
+```
+
+
